@@ -92,51 +92,45 @@ client.on('messageCreate', async message => {
 });
 
 async function playMusic(message, url) {
+  const voiceChannel = message.member.voice.channel;
 
-    const voiceChannel = message.member.voice.channel;
+  // Criar conexão
+  const connection = joinVoiceChannel({
+    channelId: voiceChannel.id,
+    guildId: message.guild.id,
+    adapterCreator: message.guild.voiceAdapterCreator,
+    selfDeaf: false,
+    selfMute: false
+  });
 
-    const connection = joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId: message.guild.id,
-        adapterCreator: message.guild.voiceAdapterCreator,
-        selfDeaf: false, // 🔥 NÃO entra mutado
-        selfMute: false
-    });
+  // Espera entrar no estado pronto
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+  } catch (error) {
+    console.error(error);
+    connection.destroy();
+    return message.reply("❌ Não consegui conectar ao canal de voz.");
+  }
 
-    try {
-        await entersState(connection, VoiceConnectionStatus.Ready, 20000);
-    } catch (error) {
-        connection.destroy();
-        return message.reply("Erro ao conectar na call.");
-    }
+  // Preparar stream
+  const stream = ytdl(url, {
+    filter: 'audioonly',
+    highWaterMark: 1 << 25
+  });
 
-    const stream = ytdl(url, {
-        filter: 'audioonly',
-        quality: 'highestaudio',
-        highWaterMark: 1 << 25
-    });
+  const resource = createAudioResource(stream);
 
-    const resource = createAudioResource(stream);
-    const player = createAudioPlayer({
-        behaviors: {
-            noSubscriber: NoSubscriberBehavior.Play
-        }
-    });
+  const player = createAudioPlayer();
 
-    player.play(resource);
-    connection.subscribe(player);
+  // Assina para tocar
+  connection.subscribe(player);
 
-    queue.set(message.guild.id, {
-        connection,
-        player
-    });
+  player.play(resource);
 
-    player.on(AudioPlayerStatus.Idle, () => {
-        connection.destroy();
-        queue.delete(message.guild.id);
-    });
+  // Quando terminar, desconecta
+  player.on(AudioPlayerStatus.Idle, () => {
+    connection.destroy();
+  });
 
-    message.reply("🎶 Tocando agora!");
+  message.reply("🎶 Tocando agora!");
 }
-
-client.login(process.env.TOKEN);
