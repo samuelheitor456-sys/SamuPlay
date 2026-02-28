@@ -1,11 +1,11 @@
 require("libsodium-wrappers");
 
-const {
-  Client,
-  GatewayIntentBits
+const { 
+  Client, 
+  GatewayIntentBits 
 } = require("discord.js");
 
-const {
+const { 
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
@@ -29,10 +29,11 @@ const client = new Client({
 const prefix = "!";
 
 client.once("ready", () => {
-  console.log(`✅ Bot online como ${client.user.tag}`);
+  console.log(`✅ Online como ${client.user.tag}`);
 });
 
 client.on("messageCreate", async (message) => {
+
   if (!message.content.startsWith(prefix) || message.author.bot) return;
 
   const args = message.content.slice(prefix.length).trim().split(/ +/);
@@ -41,39 +42,35 @@ client.on("messageCreate", async (message) => {
   if (command === "play") {
 
     const voiceChannel = message.member.voice.channel;
-    if (!voiceChannel) {
-      return message.reply("❌ Você precisa estar em um canal de voz!");
-    }
+    if (!voiceChannel) return message.reply("❌ Entre em um canal de voz.");
 
     const query = args.join(" ");
-    if (!query) {
-      return message.reply("❌ Digite o nome da música ou link!");
-    }
+    if (!query) return message.reply("❌ Digite o nome ou link.");
 
     try {
 
       const connection = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: message.guild.id,
-        adapterCreator: message.guild.voiceAdapterCreator
+        adapterCreator: message.guild.voiceAdapterCreator,
+        selfDeaf: false
       });
 
-      await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+      await entersState(connection, VoiceConnectionStatus.Ready, 20000);
 
       let stream;
 
       if (play.yt_validate(query) === "video") {
         stream = await play.stream(query);
       } else {
-        const search = await play.search(query, { limit: 1 });
-        if (!search.length) {
-          return message.reply("❌ Música não encontrada!");
-        }
-        stream = await play.stream(search[0].url);
+        const result = await play.search(query, { limit: 1 });
+        if (!result.length) return message.reply("❌ Música não encontrada.");
+        stream = await play.stream(result[0].url);
       }
 
       const resource = createAudioResource(stream.stream, {
-        inputType: stream.type
+        inputType: stream.type,
+        inlineVolume: true
       });
 
       const player = createAudioPlayer({
@@ -85,22 +82,21 @@ client.on("messageCreate", async (message) => {
       connection.subscribe(player);
       player.play(resource);
 
+      player.on(AudioPlayerStatus.Playing, () => {
+        console.log("🎵 Tocando!");
+      });
+
+      player.on("error", error => {
+        console.error("Erro no player:", error);
+      });
+
       message.reply("🎵 Tocando agora!");
 
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      console.error("ERRO REAL:", err);
       message.reply("❌ Erro ao tocar música.");
     }
   }
-
-  if (command === "stop") {
-    const voiceChannel = message.member.voice.channel;
-    if (!voiceChannel) {
-      return message.reply("❌ Você precisa estar em um canal de voz!");
-    }
-    voiceChannel.leave();
-  }
-
 });
 
 client.login(process.env.TOKEN);
