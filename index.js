@@ -1,84 +1,142 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { 
-  joinVoiceChannel, 
-  createAudioPlayer, 
-  createAudioResource,
-  AudioPlayerStatus,
-  entersState,
-  VoiceConnectionStatus
+    joinVoiceChannel,
+    createAudioPlayer,
+    createAudioResource,
+    AudioPlayerStatus,
+    NoSubscriberBehavior,
+    entersState,
+    VoiceConnectionStatus
 } = require('@discordjs/voice');
+const ytdl = require('ytdl-core');
 const play = require('play-dl');
+const { getData } = require('spotify-url-info')(fetch);
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates
-  ]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildVoiceStates
+    ]
 });
 
+const queue = new Map();
+
 client.once('ready', () => {
-  console.log('🔥 SamuPlay está online!');
+    console.log('🎵 SamuPlay está online!');
 });
 
 client.on('messageCreate', async message => {
-  if (!message.content.startsWith('!') || message.author.bot) return;
+    if (!message.content.startsWith('!') || message.author.bot) return;
 
-  const args = message.content.slice(1).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
+    const args = message.content.slice(1).split(/ +/);
+    const command = args.shift().toLowerCase();
 
-  if (command === 'play') {
+    if (command === 'play') {
+        if (!message.member.voice.channel)
+            return message.reply('Entre em uma call primeiro!');
+
+        const url = args[0];
+        if (!url) return message.reply('Envie um link do YouTube ou Spotify.');
+
+        let songURL = url;
+
+        // 🎵 Se for Spotify, converte pra busca no YouTube
+        if (url.includes('spotify.com')) {
+            const data = await getData(url);
+            const search = `${data.name} ${data.artists.map(a => a.name).join(" ")}`;
+            const results = await play.search(search, { limit: 1 });
+            if (!results.length) return message.reply("Não encontrei no YouTube.");
+            songURL = results[0].url;
+        }
+
+        playMusic(message, songURL);
+    }
+
+    if (command === 'stop') {
+        const serverQueue = queue.get(message.guild.id);
+        if (!serverQueue) return;
+
+        serverQueue.player.stop();
+        serverQueue.connection.destroy();
+        queue.delete(message.guild.id);
+        message.reply("⏹ Música parada.");
+    }
+
+    if (command === 'skip') {
+        const serverQueue = queue.get(message.guild.id);
+        if (!serverQueue) return;
+
+        serverQueue.player.stop();
+        serverQueue.connection.destroy();
+        queue.delete(message.guild.id);
+        message.reply("⏭ Saindo da call.");
+    }
+
+    if (command === 'pause') {
+        const serverQueue = queue.get(message.guild.id);
+        if (!serverQueue) return;
+
+        serverQueue.player.pause();
+        message.reply("⏸ Música pausada.");
+    }
+
+    if (command === 'resume') {
+        const serverQueue = queue.get(message.guild.id);
+        if (!serverQueue) return;
+
+        serverQueue.player.unpause();
+        message.reply("▶ Música retomada.");
+    }
+});
+
+async function playMusic(message, url) {
 
     const voiceChannel = message.member.voice.channel;
-    if (!voiceChannel) return message.reply("Entre em um canal de voz!");
-
-    const query = args.join(" ");
-    if (!query) return message.reply("Coloque o nome ou link da música!");
 
     const connection = joinVoiceChannel({
-      channelId: voiceChannel.id,
-      guildId: message.guild.id,
-      adapterCreator: message.guild.voiceAdapterCreator,
-      selfDeaf: false,   // 👈 NÃO entra surdo
-      selfMute: false    // 👈 NÃO entra mutado
+        channelId: voiceChannel.id,
+        guildId: message.guild.id,
+        adapterCreator: message.guild.voiceAdapterCreator,
+        selfDeaf: false, // 🔥 NÃO entra mutado
+        selfMute: false
     });
 
-    // Espera conectar corretamente
-    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
-
-    const player = createAudioPlayer();
-    connection.subscribe(player);
-
-    let stream;
-    let songName;
-
-    if (play.yt_validate(query) === "video") {
-      stream = await play.stream(query);
-      const info = await play.video_info(query);
-      songName = info.video_details.title;
-    } 
-    else if (play.sp_validate(query) === "track") {
-      const spotifyData = await play.spotify(query);
-      const search = `${spotifyData.name} ${spotifyData.artists[0].name}`;
-      const result = await play.search(search, { limit: 1 });
-      stream = await play.stream(result[0].url);
-      songName = result[0].title;
-    }
-    else {
-      const result = await play.search(query, { limit: 1 });
-      stream = await play.stream(result[0].url);
-      songName = result[0].title;
+    try {
+        await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+    } catch (error) {
+        connection.destroy();
+        return message.reply("Erro ao conectar na call.");
     }
 
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type
+    const stream = ytdl(url, {
+        filter: 'audioonly',
+        quality: 'highestaudio',
+        highWaterMark: 1 << 25
+    });
+
+    const resource = createAudioResource(stream);
+    const player = createAudioPlayer({
+        behaviors: {
+            noSubscriber: NoSubscriberBehavior.Play
+        }
     });
 
     player.play(resource);
+    connection.subscribe(player);
 
-    message.reply(`🎵 Tocando: ${songName}`);
-  }
-});
+    queue.set(message.guild.id, {
+        connection,
+        player
+    });
+
+    player.on(AudioPlayerStatus.Idle, () => {
+        connection.destroy();
+        queue.delete(message.guild.id);
+    });
+
+    message.reply("🎶 Tocando agora!");
+}
 
 client.login(process.env.TOKEN);
