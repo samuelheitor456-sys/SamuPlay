@@ -84,9 +84,11 @@ client.on("messageCreate", async (message) => {
         connection.destroy();
       });
 
-    } catch (error) {
-      console.error("Erro ao tocar:", error);
-      message.reply("❌ Erro ao tentar tocar a música.");
+   } catch (err) {
+  console.log("============ ERRO REAL ============");
+  console.log(err);
+  console.log("===================================");
+  message.reply("❌ Erro ao tocar música. Veja logs.");
     }
   }
 
