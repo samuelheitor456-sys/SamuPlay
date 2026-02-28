@@ -18,27 +18,50 @@ client.once('ready', () => {
 client.on('messageCreate', async message => {
   if (!message.content.startsWith('!') || message.author.bot) return;
 
-  const args = message.content.slice(1).split(' ');
+  const args = message.content.slice(1).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
   if (command === 'play') {
+
     const voiceChannel = message.member.voice.channel;
     if (!voiceChannel) return message.reply("Entre em um canal de voz!");
 
-    const search = args.join(" ");
-    if (!search) return message.reply("Digite o nome da música.");
+    const query = args.join(" ");
+    if (!query) return message.reply("Coloque o nome ou link da música!");
 
     const connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: message.guild.id,
-      adapterCreator: message.guild.voiceAdapterCreator
+      adapterCreator: message.guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: false
     });
 
     const player = createAudioPlayer();
     connection.subscribe(player);
 
-    const result = await play.search(search, { limit: 1 });
-    const stream = await play.stream(result[0].url);
+    let stream;
+    let songName;
+
+    // 🔎 Se for link
+    if (play.yt_validate(query) === "video") {
+      stream = await play.stream(query);
+      const info = await play.video_info(query);
+      songName = info.video_details.title;
+    } 
+    else if (play.sp_validate(query) === "track") {
+      const spotifyData = await play.spotify(query);
+      const search = `${spotifyData.name} ${spotifyData.artists[0].name}`;
+      const result = await play.search(search, { limit: 1 });
+      stream = await play.stream(result[0].url);
+      songName = result[0].title;
+    }
+    else {
+      // 🔎 Busca normal
+      const result = await play.search(query, { limit: 1 });
+      stream = await play.stream(result[0].url);
+      songName = result[0].title;
+    }
 
     const resource = createAudioResource(stream.stream, {
       inputType: stream.type
@@ -46,12 +69,7 @@ client.on('messageCreate', async message => {
 
     player.play(resource);
 
-    message.reply(`🎵 Tocando: ${result[0].title}`);
-  }
-
-  if (command === 'stop') {
-    message.guild.members.me.voice.disconnect();
-    message.reply("⛔ Música parada.");
+    message.reply(`🎵 Tocando: ${songName}`);
   }
 });
 
