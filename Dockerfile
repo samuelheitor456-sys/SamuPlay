@@ -1,6 +1,6 @@
-FROM node:18
+FROM node:18-bullseye
 
-RUN apt update && apt install -y ffmpeg python3 make g++
+RUN apt-get update && apt-get install -y ffmpeg
 
 WORKDIR /app
 
