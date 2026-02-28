@@ -1,21 +1,18 @@
 require("libsodium-wrappers");
 
-const { 
-  Client, 
-  GatewayIntentBits 
-} = require("discord.js");
-
-const { 
+const { Client, GatewayIntentBits } = require("discord.js");
+const {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
-  AudioPlayerStatus,
   NoSubscriberBehavior,
   entersState,
   VoiceConnectionStatus
 } = require("@discordjs/voice");
 
-const play = require("play-dl");
+const ytdl = require("ytdl-core");
+const ffmpeg = require("ffmpeg-static");
+const { spawn } = require("child_process");
 
 const client = new Client({
   intents: [
@@ -26,77 +23,72 @@ const client = new Client({
   ]
 });
 
-const prefix = "!";
-
 client.once("ready", () => {
   console.log(`✅ Online como ${client.user.tag}`);
 });
 
 client.on("messageCreate", async (message) => {
 
-  if (!message.content.startsWith(prefix) || message.author.bot) return;
+  if (!message.content.startsWith("!play") || message.author.bot) return;
 
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
+  const voiceChannel = message.member.voice.channel;
+  if (!voiceChannel) return message.reply("Entre em um canal de voz.");
 
-  if (command === "play") {
+  const url = message.content.split(" ")[1];
+  if (!url) return message.reply("Envie um link do YouTube.");
 
-    const voiceChannel = message.member.voice.channel;
-    if (!voiceChannel) return message.reply("❌ Entre em um canal de voz.");
-
-    const query = args.join(" ");
-    if (!query) return message.reply("❌ Digite o nome ou link.");
-
-    try {
-
-      const connection = joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId: message.guild.id,
-        adapterCreator: message.guild.voiceAdapterCreator,
-        selfDeaf: false
-      });
-
-      await entersState(connection, VoiceConnectionStatus.Ready, 20000);
-
-      let stream;
-
-      if (play.yt_validate(query) === "video") {
-        stream = await play.stream(query);
-      } else {
-        const result = await play.search(query, { limit: 1 });
-        if (!result.length) return message.reply("❌ Música não encontrada.");
-        stream = await play.stream(result[0].url);
-      }
-
-      const resource = createAudioResource(stream.stream, {
-        inputType: stream.type,
-        inlineVolume: true
-      });
-
-      const player = createAudioPlayer({
-        behaviors: {
-          noSubscriber: NoSubscriberBehavior.Play
-        }
-      });
-
-      connection.subscribe(player);
-      player.play(resource);
-
-      player.on(AudioPlayerStatus.Playing, () => {
-        console.log("🎵 Tocando!");
-      });
-
-      player.on("error", error => {
-        console.error("Erro no player:", error);
-      });
-
-      message.reply("🎵 Tocando agora!");
-
-    } catch (err) {
-      console.error("ERRO REAL:", err);
-      message.reply("❌ Erro ao tocar música.");
-    }
+  if (!ytdl.validateURL(url)) {
+    return message.reply("Envie um link válido do YouTube.");
   }
+
+  try {
+
+    const connection = joinVoiceChannel({
+      channelId: voiceChannel.id,
+      guildId: message.guild.id,
+      adapterCreator: message.guild.voiceAdapterCreator,
+      selfDeaf: false
+    });
+
+    await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+
+    const stream = ytdl(url, {
+      filter: "audioonly",
+      highWaterMark: 1 << 25
+    });
+
+    const ffmpegProcess = spawn(ffmpeg, [
+      "-analyzeduration", "0",
+      "-loglevel", "0",
+      "-i", "pipe:0",
+      "-f", "s16le",
+      "-ar", "48000",
+      "-ac", "2",
+      "pipe:1"
+    ], {
+      stdio: ["pipe", "pipe", "ignore"]
+    });
+
+    stream.pipe(ffmpegProcess.stdin);
+
+    const resource = createAudioResource(ffmpegProcess.stdout);
+
+    const player = createAudioPlayer({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Play
+      }
+    });
+
+    connection.subscribe(player);
+    player.play(resource);
+
+    message.reply("🎵 Tocando!");
+
+  } catch (err) {
+    console.error("ERRO REAL:", err);
+    message.reply("Erro ao tocar música.");
+  }
+
 });
 
 client.login(process.env.TOKEN);
