@@ -1,8 +1,9 @@
 {
-  "name": "samuplay",
+  "name": "music-bot",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Bot de musica Railway",
   "main": "index.js",
+  "type": "commonjs",
   "engines": {
     "node": "18.x"
   },
@@ -11,8 +12,9 @@
   },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "@discordjs/voice": "^0.16.1",
-    "play-dl": "^1.9.6",
-    "ffmpeg-static": "^5.2.0"
+    "@discordjs/voice": "^0.16.0",
+    "play-dl": "^1.9.7",
+    "ffmpeg-static": "^5.2.0",
+    "libsodium-wrappers": "^0.7.13"
   }
 }
