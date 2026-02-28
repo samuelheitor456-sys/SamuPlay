@@ -1,5 +1,12 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource } = require('@discordjs/voice');
+const { 
+  joinVoiceChannel, 
+  createAudioPlayer, 
+  createAudioResource,
+  AudioPlayerStatus,
+  entersState,
+  VoiceConnectionStatus
+} = require('@discordjs/voice');
 const play = require('play-dl');
 
 const client = new Client({
@@ -33,9 +40,12 @@ client.on('messageCreate', async message => {
       channelId: voiceChannel.id,
       guildId: message.guild.id,
       adapterCreator: message.guild.voiceAdapterCreator,
-      selfDeaf: false,
-      selfMute: false
+      selfDeaf: false,   // 👈 NÃO entra surdo
+      selfMute: false    // 👈 NÃO entra mutado
     });
+
+    // Espera conectar corretamente
+    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
 
     const player = createAudioPlayer();
     connection.subscribe(player);
@@ -43,7 +53,6 @@ client.on('messageCreate', async message => {
     let stream;
     let songName;
 
-    // 🔎 Se for link
     if (play.yt_validate(query) === "video") {
       stream = await play.stream(query);
       const info = await play.video_info(query);
@@ -57,7 +66,6 @@ client.on('messageCreate', async message => {
       songName = result[0].title;
     }
     else {
-      // 🔎 Busca normal
       const result = await play.search(query, { limit: 1 });
       stream = await play.stream(result[0].url);
       songName = result[0].title;
