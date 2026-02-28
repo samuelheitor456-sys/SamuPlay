@@ -1,114 +1,109 @@
-const { Client, GatewayIntentBits } = require('discord.js');
-const {
+import {
+  Client,
+  GatewayIntentBits
+} from "discord.js";
+
+import {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
   AudioPlayerStatus,
   entersState,
   VoiceConnectionStatus
-} = require('@discordjs/voice');
-const play = require('play-dl');
+} from "@discordjs/voice";
+
+import play from "play-dl";
+import ffmpeg from "ffmpeg-static";
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.MessageContent
   ]
 });
 
-const queue = new Map();
+const prefix = "!";
+let player = createAudioPlayer();
+let connection = null;
 
-client.once('ready', () => {
-  console.log('🎵 SamuPlay está online!');
+client.once("clientReady", () => {
+  console.log("🎵 SamuPlay está online!");
 });
 
-client.on('messageCreate', async (message) => {
-  if (!message.content.startsWith('!') || message.author.bot) return;
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+  if (!message.content.startsWith(prefix)) return;
 
-  const args = message.content.slice(1).split(/ +/);
+  const args = message.content.slice(prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  if (command === 'play') {
-    if (!message.member.voice.channel)
-      return message.reply('❌ Entre em uma call primeiro!');
+  // =========================
+  // PLAY
+  // =========================
+  if (command === "play") {
+    if (!args.length)
+      return message.reply("❌ Você precisa informar o nome ou link da música.");
 
-    const query = args.join(" ");
-    if (!query)
-      return message.reply('❌ Coloque o nome ou link da música.');
+    const voiceChannel = message.member.voice.channel;
+    if (!voiceChannel)
+      return message.reply("❌ Entre em um canal de voz primeiro.");
 
     try {
-      const channel = message.member.voice.channel;
-
-      const connection = joinVoiceChannel({
-        channelId: channel.id,
-        guildId: message.guild.id,
-        adapterCreator: message.guild.voiceAdapterCreator,
-        selfDeaf: false,
-        selfMute: false
+      // Conecta na call
+      connection = joinVoiceChannel({
+        channelId: voiceChannel.id,
+        guildId: voiceChannel.guild.id,
+        adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+        selfDeaf: false
       });
 
-      await entersState(connection, VoiceConnectionStatus.Ready, 30000);
+      await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
 
-      const stream = await play.stream(query);
+      // Pesquisa música
+      const search = await play.search(args.join(" "), { limit: 1 });
+      if (!search.length)
+        return message.reply("❌ Música não encontrada.");
+
+      const url = search[0].url;
+
+      // Stream
+      const stream = await play.stream(url);
+
       const resource = createAudioResource(stream.stream, {
         inputType: stream.type
       });
 
-      const player = createAudioPlayer();
-
-      connection.subscribe(player);
       player.play(resource);
+      connection.subscribe(player);
 
-      queue.set(message.guild.id, {
-        connection,
-        player
-      });
+      message.reply(`🎶 Tocando: **${search[0].title}**`);
 
       player.on(AudioPlayerStatus.Idle, () => {
         connection.destroy();
-        queue.delete(message.guild.id);
       });
 
-      message.reply('🎶 Tocando agora!');
     } catch (error) {
-      console.error(error);
-      message.reply('❌ Erro ao tocar música.');
+      console.error("Erro ao tocar:", error);
+      message.reply("❌ Erro ao tentar tocar a música.");
     }
   }
 
-  if (command === 'pause') {
-    const serverQueue = queue.get(message.guild.id);
-    if (!serverQueue) return;
-    serverQueue.player.pause();
-    message.reply('⏸ Música pausada.');
-  }
-
-  if (command === 'resume') {
-    const serverQueue = queue.get(message.guild.id);
-    if (!serverQueue) return;
-    serverQueue.player.unpause();
-    message.reply('▶ Música retomada.');
-  }
-
-  if (command === 'stop') {
-    const serverQueue = queue.get(message.guild.id);
-    if (!serverQueue) return;
-    serverQueue.player.stop();
-    serverQueue.connection.destroy();
-    queue.delete(message.guild.id);
-    message.reply('⏹ Música parada.');
-  }
-
-  if (command === 'skip') {
-    const serverQueue = queue.get(message.guild.id);
-    if (!serverQueue) return;
-    serverQueue.player.stop();
-    serverQueue.connection.destroy();
-    queue.delete(message.guild.id);
-    message.reply('⏭ Saindo da call.');
+  // =========================
+  // STOP
+  // =========================
+  if (command === "stop") {
+    if (connection) {
+      player.stop();
+      connection.destroy();
+      connection = null;
+      message.reply("⏹ Música parada e saí da call.");
+    } else {
+      message.reply("❌ Não estou em nenhuma call.");
+    }
   }
 });
 
+// Login com token
 client.login(process.env.TOKEN);
